@@ -1,29 +1,53 @@
 package main
 
 import (
+	"fmt"
 	"log"
-	"net/http"
-	"os"
-
-	"github.com/gin-gonic/gin"
-	_ "github.com/heroku/x/hmetrics/onload"
+	"io/ioutil"
+    "net/http"
+    "regexp"
 )
 
-func main() {
-	port := os.Getenv("PORT")
+func podHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Pod %s requested!\n", r.URL.Path[1:])
 
-	if port == "" {
-		log.Fatal("$PORT must be set")
+	serial := r.URL.Path[1:]
+	matched, err := regexp.MatchString("100\\d\\d", serial)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !matched {
+		fmt.Fprintf(w, "Bad printer serial number: %s\n", serial)
 	}
 
-	router := gin.New()
-	router.Use(gin.Logger())
-	router.LoadHTMLGlob("templates/*.tmpl.html")
-	router.Static("/static", "static")
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", "http://pod0vg.eecs.berkeley.edu:3000/api/aprinters/job_data", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	req.Header.Add("serial", serial)
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
 
-	router.GET("/", func(c *gin.Context) {
-		c.HTML(http.StatusOK, "index.tmpl.html", nil)
-	})
+	if resp.StatusCode == 200 { // OK
+	    bodyBytes, err := ioutil.ReadAll(resp.Body)
+	    if err != nil {
+			log.Fatal(err)
+		}
+	    bodyString := string(bodyBytes)
+	    fmt.Fprintf(w, "%s\n", bodyString)
+	}
+}
 
-	router.Run(":" + port)
+func handler(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+}
+
+func main() {
+    // http.HandleFunc("/", handler)
+    http.HandleFunc("/", podHandler)
+    log.Fatal(http.ListenAndServe(":8080", nil))
 }
