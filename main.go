@@ -3,10 +3,38 @@ package main
 import (
 	"fmt"
 	"log"
-	"io/ioutil"
+	"encoding/json"
     "net/http"
     "regexp"
+    "github.com/jasonlvhit/gocron"
 )
+
+type JobDataJSON struct {
+	Job struct {
+		AveragePrintTime   float64 `json:"averagePrintTime"`
+		EstimatedPrintTime float64 `json:"estimatedPrintTime"`
+		Filament           struct {
+			Tool0 struct {
+				Length float64 `json:"length"`
+				Volume float64 `json:"volume"`
+			} `json:"tool0"`
+		} `json:"filament"`
+		File struct {
+			Date   int    `json:"date"`
+			Name   string `json:"name"`
+			Origin string `json:"origin"`
+			Size   int    `json:"size"`
+		} `json:"file"`
+		LastPrintTime float64 `json:"lastPrintTime"`
+	} `json:"job"`
+	Progress struct {
+		Completion    float64     `json:"completion"`
+		Filepos       int         `json:"filepos"`
+		PrintTime     int         `json:"printTime"`
+		PrintTimeLeft interface{} `json:"printTimeLeft"`
+	} `json:"progress"`
+	State string `json:"state"`
+}
 
 func podHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Pod %s requested!\n", r.URL.Path[1:])
@@ -33,12 +61,11 @@ func podHandler(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 200 { // OK
-	    bodyBytes, err := ioutil.ReadAll(resp.Body)
-	    if err != nil {
-			log.Fatal(err)
-		}
-	    bodyString := string(bodyBytes)
-	    fmt.Fprintf(w, "%s\n", bodyString)
+		jobData := new(JobDataJSON)
+		json.NewDecoder(resp.Body).Decode(jobData)
+		fmt.Fprintf(w, "Print name: %s\n", jobData.Job.File.Name)
+		fmt.Fprintf(w, "Print progress: %.2f%%\n", jobData.Progress.Completion)
+		fmt.Fprintf(w, "Print state: %s\n", jobData.State)
 	}
 }
 
@@ -46,8 +73,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
 }
 
+func task() {
+	fmt.Println("I am runnning task.")
+}
+
 func main() {
     // http.HandleFunc("/", handler)
-    http.HandleFunc("/", podHandler)
+    println("Starting server...")
+    gocron.Every(1).Second().Do(task)
+    <- gocron.Start()
+
+     http.HandleFunc("/", podHandler)
     log.Fatal(http.ListenAndServe(":8080", nil))
 }
