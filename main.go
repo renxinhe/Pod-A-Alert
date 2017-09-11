@@ -1,12 +1,19 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
-	"encoding/json"
     "net/http"
+    "os"
     "regexp"
+    "strconv"
+    "time"
+
+    "github.com/gin-gonic/gin"
     "github.com/jasonlvhit/gocron"
+    "github.com/sendgrid/sendgrid-go"
+    "github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
 type JobDataJSON struct {
@@ -36,53 +43,148 @@ type JobDataJSON struct {
 	State string `json:"state"`
 }
 
-func podHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Pod %s requested!\n", r.URL.Path[1:])
+type Alert struct {
+	AlertInitTime	time.Time 	
+	PrinterSerial	int 		`form:"serial" binding:"required"`
+	ReceiverName	string 		`form:"name"`
+	ReceiverEmail	string 		`form:"email" binding:"required"`
+	AlertSendTime	time.Time
+	PrintName		string
+	PrintProgress	float64
+	PrintState		string
+	ShouldEmail		bool
+}
 
-	serial := r.URL.Path[1:]
-	matched, err := regexp.MatchString("100\\d\\d", serial)
+var alerts []Alert
+
+func check(err error) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if !matched {
-		fmt.Fprintf(w, "Bad printer serial number: %s\n", serial)
-	}
+}
 
+func setUpServer() {
+    router := gin.Default()
+	router.LoadHTMLGlob("templates/*.tmpl.html")
+	router.Static("/static", "static")
+	router.GET("/", homePageHandler)
+	router.GET("/alerts", getAlertsHandler)
+	router.POST("/new_alert", newAlertHandler)
+	router.Run(":8080")
+}
+
+func homePageHandler(c *gin.Context) {
+	c.HTML(http.StatusOK, "index.tmpl.html", nil)
+}
+
+func getAlertsHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, alerts)
+}
+
+func newAlertHandler(c *gin.Context) {
+	var newAlert Alert
+	if c.Bind(&newAlert) == nil {
+		matched, err := regexp.MatchString("100\\d\\d", c.PostForm("serial"))
+		check(err)
+		if !matched {
+			c.String(http.StatusBadRequest, "Bad printer number. The printer number should be 5-digits long, and follows the pattern \"100**\".")
+			return
+		}
+		emailRegexPattern := "(^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$)"
+		matched, err = regexp.MatchString(emailRegexPattern, c.PostForm("email"))
+		check(err)
+		if !matched {
+			c.String(http.StatusBadRequest, "Bad email format.")
+			return
+		}
+
+		fmt.Printf("Received new alert request for printer number %d. Created by %s. Destination email is %s.\n",
+			newAlert.PrinterSerial,
+			newAlert.ReceiverName,
+			newAlert.ReceiverEmail)
+		newAlert.AlertInitTime = time.Now()
+		newAlert.ShouldEmail = false
+		alerts = append(alerts, newAlert)
+		c.Redirect(http.StatusMovedPermanently, "/")
+	} else {
+		c.String(http.StatusBadRequest, "rip")
+	}
+}
+
+func cronTask() {
+	for i, alert := range alerts {
+		fmt.Printf("Alert %d: [%.2f%%] printer %d with job name %s to %s\n",
+			i,
+			alert.PrintProgress,
+			alert.PrinterSerial,
+			alert.PrintName,
+			alert.ReceiverEmail)
+		updateAlertJobData(&alert)
+		if alert.ShouldEmail && alert.PrintProgress == 100 {
+			sendAlertEmail(&alert)
+		}
+		alerts[i] = alert
+	}
+}
+
+func updateAlertJobData(alert *Alert) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", "http://pod0vg.eecs.berkeley.edu:3000/api/aprinters/job_data", nil)
-	if err != nil {
-		log.Fatal(err)
-	}
-	req.Header.Add("serial", serial)
+	check(err)
+	req.Header.Add("serial", strconv.Itoa(alert.PrinterSerial))
 	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatal(err)
-	}
+	check(err)
 	defer resp.Body.Close()
 
 	if resp.StatusCode == 200 { // OK
 		jobData := new(JobDataJSON)
 		json.NewDecoder(resp.Body).Decode(jobData)
-		fmt.Fprintf(w, "Print name: %s\n", jobData.Job.File.Name)
-		fmt.Fprintf(w, "Print progress: %.2f%%\n", jobData.Progress.Completion)
-		fmt.Fprintf(w, "Print state: %s\n", jobData.State)
+		alert.PrintName = jobData.Job.File.Name
+		alert.PrintProgress = jobData.Progress.Completion
+		alert.PrintState = jobData.State
+		if alert.PrintProgress < 98 {
+			alert.ShouldEmail = true
+		} else if alert.PrintProgress == 100 {
+			alert.AlertSendTime = time.Now()
+		}
 	}
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
-}
+func sendAlertEmail(alert *Alert) {
+    from := mail.NewEmail("Pod Alert", "noreply@jimren.com")
+    subject := fmt.Sprintf("[Pod Alert] %s has finished!", alert.PrintName)
+    to := mail.NewEmail(alert.ReceiverName, alert.ReceiverEmail)
+    emailBody := fmt.Sprintf(`
+Hello %s,
+	
+Your print job %s on printer number %d has finished at %s.
 
-func task() {
-	fmt.Println("I am runnning task.")
+best,
+
+Pod Alert`,
+		alert.ReceiverName,
+		alert.PrintName,
+		alert.PrinterSerial,
+		alert.AlertSendTime)
+    content := mail.NewContent("text/plain", emailBody)
+    m := mail.NewV3MailInit(from, subject, to, content)
+
+    request := sendgrid.GetRequest(os.Getenv("SENDGRID_API_KEY"), "/v3/mail/send", "https://api.sendgrid.com")
+    request.Method = "POST"
+    request.Body = mail.GetRequestBody(m)
+    response, err := sendgrid.API(request)
+    if err != nil {
+        fmt.Println(err)
+    } else {
+        fmt.Println(response.StatusCode)
+        fmt.Println(response.Body)
+        fmt.Println(response.Headers)
+    }
 }
 
 func main() {
-    // http.HandleFunc("/", handler)
     println("Starting server...")
-    gocron.Every(1).Second().Do(task)
+    gocron.Every(10).Seconds().Do(cronTask)
+    go setUpServer()
     <- gocron.Start()
-
-     http.HandleFunc("/", podHandler)
-    log.Fatal(http.ListenAndServe(":8080", nil))
 }
