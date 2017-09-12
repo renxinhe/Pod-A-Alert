@@ -64,6 +64,15 @@ func check(err error) {
 	}
 }
 
+func contains(arr [12]string, str string) bool {
+   for _, a := range arr {
+      if a == str {
+         return true
+      }
+   }
+   return false
+}
+
 func setUpServer() {
     router := gin.Default()
 	router.LoadHTMLGlob("templates/*.tmpl.html")
@@ -87,12 +96,17 @@ func getAlertsHandler(c *gin.Context) {
 }
 
 func newAlertHandler(c *gin.Context) {
+	if len(alerts) >= 30 {
+		c.String(http.StatusBadRequest, "Maximum number of alerts reached.")
+		return
+	}
 	var newAlert Alert
 	if c.Bind(&newAlert) == nil {
 		matched, err := regexp.MatchString("10\\d\\d\\d", c.PostForm("serial"))
 		check(err)
-		if !matched {
-			c.String(http.StatusBadRequest, "Bad printer number. The printer number should be 5-digits long, and follows the pattern \"10***\".")
+		allSerial := [12]string{"10025", "10026", "10034", "10035", "10038", "10047", "10094", "10097", "10098", "10213", "10453", "10454"}
+		if !matched || !contains(allSerial, c.PostForm("serial")) {
+			c.String(http.StatusBadRequest, "Bad printer number. The printer number should be 5-digits long, and follows the pattern \"10***\".\nExisting printers: 10025, 10026, 10034, 10035, 10038, 10047, 10094, 10097, 10098, 10213, 10453, 10454.\n")
 			return
 		}
 		emailRegexPattern := "(^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$)"
