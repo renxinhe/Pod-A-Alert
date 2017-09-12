@@ -1,14 +1,14 @@
 {
-  "name": "Start on Heroku: Go",
-  "description": "Go Getting Started Example App",
+  "name": "Pod Alert",
+  "description": "Realtime email notification alert for Type A 3D printer jobs in Jacobs Hall, UC Berkeley.",
   "keywords": [
-    "getting-started",
+    "pod-alert",
     "go",
-    "sample",
-    "example"
+    "uc-berkeley",
+    "jacobs-hall"
   ],
   "image": "heroku/go:1.6",
   "mount_dir": "src/github.com/heroku/go-getting-started",
-  "website": "http://github.com/heroku/go-getting-started",
-  "repository": "http://github.com/heroku/go-getting-started"
+  "website": "http://podalert.jimren.com",
+  "repository": "http://github.com/renxinhe/pod-alert"
 }
