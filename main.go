@@ -57,6 +57,7 @@ type Alert struct {
 }
 
 var alerts []Alert
+var alertsBusy bool
 
 func check(err error) {
 	if err != nil {
@@ -132,6 +133,10 @@ func newAlertHandler(c *gin.Context) {
 }
 
 func cronTask() {
+	if alertsBusy {
+		return
+	}
+	alertsBusy = true
 	for i, alert := range alerts {
 		fmt.Printf("Alert %d: [%.2f%%] printer %d with job name %s to %s\n",
 			i,
@@ -150,6 +155,7 @@ func cronTask() {
 			alerts[i] = alert
 		}
 	}
+	alertsBusy = false
 }
 
 func updateAlertJobData(alert *Alert) {
@@ -209,6 +215,7 @@ Pod Alert`,
 }
 
 func main() {
+	alertsBusy = false
     println("Starting server...")
     gocron.Every(10).Seconds().Do(cronTask)
     go setUpServer()
