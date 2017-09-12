@@ -53,6 +53,7 @@ type Alert struct {
 	PrintProgress	float64
 	PrintState		string
 	ShouldEmail		bool
+	SentEmail 		bool
 }
 
 var alerts []Alert
@@ -84,10 +85,10 @@ func getAlertsHandler(c *gin.Context) {
 func newAlertHandler(c *gin.Context) {
 	var newAlert Alert
 	if c.Bind(&newAlert) == nil {
-		matched, err := regexp.MatchString("100\\d\\d", c.PostForm("serial"))
+		matched, err := regexp.MatchString("10\\d\\d\\d", c.PostForm("serial"))
 		check(err)
 		if !matched {
-			c.String(http.StatusBadRequest, "Bad printer number. The printer number should be 5-digits long, and follows the pattern \"100**\".")
+			c.String(http.StatusBadRequest, "Bad printer number. The printer number should be 5-digits long, and follows the pattern \"10***\".")
 			return
 		}
 		emailRegexPattern := "(^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$)"
@@ -104,6 +105,7 @@ func newAlertHandler(c *gin.Context) {
 			newAlert.ReceiverEmail)
 		newAlert.AlertInitTime = time.Now()
 		newAlert.ShouldEmail = false
+		newAlert.SentEmail = false
 		alerts = append(alerts, newAlert)
 		c.Redirect(http.StatusMovedPermanently, "/")
 	} else {
@@ -120,10 +122,15 @@ func cronTask() {
 			alert.PrintName,
 			alert.ReceiverEmail)
 		updateAlertJobData(&alert)
-		if alert.ShouldEmail && alert.PrintProgress == 100 {
+		if alert.ShouldEmail && !alert.SentEmail && alert.PrintProgress == 100 {
 			sendAlertEmail(&alert)
 		}
-		alerts[i] = alert
+		if !alert.AlertSendTime.IsZero() &&
+			time.Since(alert.AlertSendTime).Minutes() > 5 {
+				alerts = append(alerts[:i], alerts[i+1:]...)
+		} else {
+			alerts[i] = alert
+		}
 	}
 }
 
@@ -142,9 +149,9 @@ func updateAlertJobData(alert *Alert) {
 		alert.PrintName = jobData.Job.File.Name
 		alert.PrintProgress = jobData.Progress.Completion
 		alert.PrintState = jobData.State
-		if alert.PrintProgress < 98 {
+		if alert.PrintProgress < 98 && !(alert.PrintProgress == 0 && alert.PrintState == ""){
 			alert.ShouldEmail = true
-		} else if alert.PrintProgress == 100 {
+		} else if alert.PrintProgress == 100 && alert.AlertSendTime.IsZero() {
 			alert.AlertSendTime = time.Now()
 		}
 	}
@@ -165,7 +172,7 @@ Pod Alert`,
 		alert.ReceiverName,
 		alert.PrintName,
 		alert.PrinterSerial,
-		alert.AlertSendTime)
+		alert.AlertSendTime.Format("2006-01-02 15:04"))
     content := mail.NewContent("text/plain", emailBody)
     m := mail.NewV3MailInit(from, subject, to, content)
 
@@ -179,6 +186,7 @@ Pod Alert`,
         fmt.Println(response.StatusCode)
         fmt.Println(response.Body)
         fmt.Println(response.Headers)
+        alert.SentEmail = true
     }
 }
 
