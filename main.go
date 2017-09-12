@@ -71,7 +71,11 @@ func setUpServer() {
 	router.GET("/", homePageHandler)
 	router.GET("/alerts", getAlertsHandler)
 	router.POST("/new_alert", newAlertHandler)
-	router.Run(":8080")
+	port := os.Getenv("PORT")
+	if len(port) == 0 {
+		port = "8080"
+	}
+	router.Run(":" + port)
 }
 
 func homePageHandler(c *gin.Context) {
