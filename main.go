@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
     "net/http"
     "os"
@@ -122,9 +123,12 @@ func newAlertHandler(c *gin.Context) {
 			newAlert.PrinterSerial,
 			newAlert.ReceiverName,
 			newAlert.ReceiverEmail)
+
+		newAlert.ReceiverName = html.EscapeString(newAlert.ReceiverName)
 		newAlert.AlertInitTime = time.Now()
 		newAlert.ShouldEmail = false
 		newAlert.SentEmail = false
+
 		alerts = append(alerts, newAlert)
 		c.Redirect(http.StatusMovedPermanently, "/")
 	} else {
