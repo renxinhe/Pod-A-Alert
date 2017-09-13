@@ -151,6 +151,7 @@ func cronTask() {
 		if !alert.AlertSendTime.IsZero() &&
 			time.Since(alert.AlertSendTime).Minutes() > 5 {
 				alerts = append(alerts[:i], alerts[i+1:]...)
+				fmt.Printf("Deleted %+v at index %d\n", alert, i)
 		} else {
 			alerts[i] = alert
 		}
