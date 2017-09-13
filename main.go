@@ -166,7 +166,10 @@ func cronTask() {
 func updateAlertJobData(alert *Alert) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", "http://pod0vg.eecs.berkeley.edu:3000/api/aprinters/job_data", nil)
-	check(err)
+	if err != nil {
+		log.Printf("Error in GET job_data: %s\n", err)
+		return
+	}
 	req.Header.Add("serial", strconv.Itoa(alert.PrinterSerial))
 	resp, err := client.Do(req)
 	check(err)
