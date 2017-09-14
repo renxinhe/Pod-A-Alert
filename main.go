@@ -142,7 +142,8 @@ func cronTask() {
 		return
 	}
 	alertsBusy = true
-	for i, alert := range alerts {
+	for i := len(alerts)-1; i >= 0; i-- {
+		alert := alerts[i]
 		fmt.Printf("Alert %d: [%.2f%%] printer %d with job name %s to %s\n",
 			i,
 			alert.PrintProgress,
